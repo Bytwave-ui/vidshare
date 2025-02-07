@@ -1,0 +1,12 @@
+{
+  "name": "vidshare",
+  "version": "1.0.0",
+  "description": "A video sharing platform",
+  "main": "index.html",
+  "scripts": {
+    "start": "http-server -c-1 --cors"
+  },
+  "dependencies": {
+    "http-server": "^14.1.1"
+  }
+}
