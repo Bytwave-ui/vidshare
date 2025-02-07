@@ -48,16 +48,23 @@ class Studio {
                 <h2>Content Studio</h2>
                 <div class="upload-section">
                     <div class="upload-buttons">
-                        <label class="upload-btn" for="studio-video-upload">
+                        <div class="upload-btn">
                             <i class="fas fa-upload"></i>
                             <span>Upload Video</span>
-                            <input type="file" id="studio-video-upload" accept="video/*,.mp4,.mov,.avi" style="display: none;">
-                        </label>
-                        <label class="upload-btn gallery-btn">
+                            <input type="file" 
+                                id="studio-video-upload" 
+                                accept="video/*,.mp4,.mov,.avi"
+                                capture="environment"
+                                class="file-input">
+                        </div>
+                        <div class="upload-btn gallery-btn">
                             <i class="fas fa-images"></i>
                             <span>Choose from Gallery</span>
-                            <input type="file" id="gallery-video-upload" accept="video/*,.mp4,.mov,.avi" style="display: none;">
-                        </label>
+                            <input type="file" 
+                                id="gallery-video-upload" 
+                                accept="video/*,.mp4,.mov,.avi"
+                                class="file-input">
+                        </div>
                     </div>
                 </div>
                 <div class="videos-section">
@@ -74,18 +81,44 @@ class Studio {
         // Camera video upload
         const uploadInput = document.getElementById('studio-video-upload');
         if (uploadInput) {
-            uploadInput.addEventListener('change', (e) => {
-                const file = e.target.files[0];
-                if (file) this.showUploadModal(file);
+            uploadInput.addEventListener('change', async (e) => {
+                try {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                        console.log('File selected:', {
+                            name: file.name,
+                            type: file.type,
+                            size: file.size,
+                            lastModified: file.lastModified
+                        });
+                        await this.showUploadModal(file);
+                    }
+                } catch (error) {
+                    console.error('Error handling file selection:', error);
+                    this.showError('Error selecting file. Please try again.');
+                }
             });
         }
 
         // Gallery video upload
         const galleryInput = document.getElementById('gallery-video-upload');
         if (galleryInput) {
-            galleryInput.addEventListener('change', (e) => {
-                const file = e.target.files[0];
-                if (file) this.showUploadModal(file);
+            galleryInput.addEventListener('change', async (e) => {
+                try {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                        console.log('File selected:', {
+                            name: file.name,
+                            type: file.type,
+                            size: file.size,
+                            lastModified: file.lastModified
+                        });
+                        await this.showUploadModal(file);
+                    }
+                } catch (error) {
+                    console.error('Error handling file selection:', error);
+                    this.showError('Error selecting file. Please try again.');
+                }
             });
         }
 
