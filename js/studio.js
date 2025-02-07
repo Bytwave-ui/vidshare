@@ -202,11 +202,23 @@ class Studio {
                 throw new Error('Please login to upload videos');
             }
 
-            console.log('Starting video upload process...', { file, title, description });
+            console.log('Starting video upload process...', { 
+                file, 
+                title, 
+                description,
+                fileType: file?.type,
+                fileSize: file?.size,
+                fileConstructor: file?.constructor?.name
+            });
             
             // Basic file validation
-            if (!file || !(file instanceof File)) {
-                throw new Error('Invalid file selected');
+            if (!file) {
+                throw new Error('No file selected');
+            }
+
+            // More flexible file validation that works on mobile
+            if (!(file instanceof Blob) && !(file instanceof File)) {
+                throw new Error('Invalid file format');
             }
 
             // Validate file size (500MB)
@@ -215,8 +227,15 @@ class Studio {
                 throw new Error(`File size must be less than 500MB. Current size: ${Math.round(file.size / (1024 * 1024))}MB`);
             }
 
-            if (!file.type.startsWith('video/')) {
-                throw new Error('Please select a valid video file');
+            // More flexible video type validation
+            const validVideoTypes = ['video/', '.mp4', '.mov', '.avi', '.mkv'];
+            const isValidVideo = validVideoTypes.some(type => 
+                file.type.toLowerCase().includes(type) || 
+                (file.name && file.name.toLowerCase().endsWith(type.replace('.', '')))
+            );
+
+            if (!isValidVideo) {
+                throw new Error('Please select a valid video file (MP4, MOV, AVI, or MKV)');
             }
 
             // Create and show progress indicator
