@@ -25,10 +25,7 @@ class Studio {
             // Initialize listeners
             this.initializeListeners();
 
-            // Load initial data if studio tab is visible
-            if (document.getElementById('studio-section')?.classList.contains('hidden') === false) {
-                await this.loadVideos();
-            }
+            console.log('Studio initialized successfully');
         } catch (error) {
             console.error('Studio initialization error:', error);
         }
@@ -41,7 +38,7 @@ class Studio {
             return;
         }
 
-        console.log('Creating studio UI'); // Debug log
+        console.log('Creating studio UI');
 
         container.innerHTML = `
             <div class="studio-container">
@@ -53,8 +50,7 @@ class Studio {
                             <span>Upload Video</span>
                             <input type="file" 
                                 id="studio-video-upload" 
-                                accept="video/*,.mp4,.mov,.avi"
-                                capture="environment"
+                                accept="video/*"
                                 class="file-input">
                         </div>
                         <div class="upload-btn gallery-btn">
@@ -62,7 +58,7 @@ class Studio {
                             <span>Choose from Gallery</span>
                             <input type="file" 
                                 id="gallery-video-upload" 
-                                accept="video/*,.mp4,.mov,.avi"
+                                accept="video/*"
                                 class="file-input">
                         </div>
                     </div>
@@ -78,6 +74,8 @@ class Studio {
     }
 
     initializeListeners() {
+        console.log('Initializing studio listeners');
+        
         // Camera video upload
         const uploadInput = document.getElementById('studio-video-upload');
         if (uploadInput) {
@@ -85,11 +83,10 @@ class Studio {
                 try {
                     const file = e.target.files?.[0];
                     if (file) {
-                        console.log('File selected:', {
+                        console.log('File selected for upload:', {
                             name: file.name,
                             type: file.type,
-                            size: file.size,
-                            lastModified: file.lastModified
+                            size: file.size
                         });
                         await this.showUploadModal(file);
                     }
@@ -98,6 +95,8 @@ class Studio {
                     this.showError('Error selecting file. Please try again.');
                 }
             });
+        } else {
+            console.error('Upload input not found');
         }
 
         // Gallery video upload
@@ -107,19 +106,20 @@ class Studio {
                 try {
                     const file = e.target.files?.[0];
                     if (file) {
-                        console.log('File selected:', {
+                        console.log('File selected from gallery:', {
                             name: file.name,
                             type: file.type,
-                            size: file.size,
-                            lastModified: file.lastModified
+                            size: file.size
                         });
                         await this.showUploadModal(file);
                     }
                 } catch (error) {
-                    console.error('Error handling file selection:', error);
+                    console.error('Error handling gallery file selection:', error);
                     this.showError('Error selecting file. Please try again.');
                 }
             });
+        } else {
+            console.error('Gallery input not found');
         }
     }
 
@@ -167,6 +167,114 @@ class Studio {
             modal.remove();
             await this.uploadVideo(file, title, description);
         });
+    }
+
+    async uploadVideo(file, title, description) {
+        let loadingDiv = null;
+        try {
+            if (!this.currentUser) {
+                throw new Error('Please login to upload videos');
+            }
+
+            console.log('Starting upload process:', {
+                fileName: file?.name,
+                fileType: file?.type,
+                fileSize: file?.size
+            });
+
+            // Basic validation
+            if (!file) {
+                throw new Error('No file selected');
+            }
+
+            // Show upload progress
+            loadingDiv = document.createElement('div');
+            loadingDiv.className = 'upload-progress';
+            loadingDiv.innerHTML = `
+                <div class="progress-text">Starting upload...</div>
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: 0%"></div>
+                </div>
+            `;
+            document.querySelector('.upload-section').appendChild(loadingDiv);
+
+            const updateProgress = (percent, message) => {
+                console.log('Upload progress:', { percent, message });
+                if (loadingDiv) {
+                    loadingDiv.querySelector('.progress-text').textContent = message || `Uploading: ${percent}%`;
+                    loadingDiv.querySelector('.progress-fill').style.width = `${percent}%`;
+                }
+            };
+
+            // Generate filename
+            const timestamp = Date.now();
+            const fileExt = file.name.split('.').pop().toLowerCase() || 'mp4';
+            const fileName = `${this.currentUser.id}/${timestamp}.${fileExt}`;
+
+            updateProgress(10, 'Starting upload...');
+
+            // Direct upload attempt
+            const { data, error } = await supabase.storage
+                .from('videos')
+                .upload(fileName, file, {
+                    cacheControl: '3600',
+                    upsert: true
+                });
+
+            if (error) {
+                console.error('Upload error:', error);
+                throw error;
+            }
+
+            updateProgress(70, 'Processing...');
+
+            // Get public URL
+            const { data: urlData, error: urlError } = supabase.storage
+                .from('videos')
+                .getPublicUrl(fileName);
+
+            if (urlError) {
+                console.error('Error getting URL:', urlError);
+                throw urlError;
+            }
+
+            updateProgress(90, 'Saving to database...');
+
+            // Save to database
+            const videoData = {
+                user_id: this.currentUser.id,
+                url: urlData.publicUrl,
+                title: title || 'Untitled Video',
+                description: description || '',
+                created_at: new Date().toISOString()
+            };
+
+            const { error: dbError } = await supabase
+                .from('videos')
+                .insert([videoData]);
+
+            if (dbError) {
+                console.error('Database error:', dbError);
+                throw dbError;
+            }
+
+            updateProgress(100, 'Complete!');
+            this.showSuccess('Video uploaded successfully!');
+            await this.loadVideos();
+
+        } catch (error) {
+            console.error('Upload failed:', error);
+            this.showError(error.message || 'Failed to upload video');
+        } finally {
+            if (loadingDiv) {
+                loadingDiv.remove();
+            }
+            // Reset file inputs
+            ['studio-video-upload', 'gallery-video-upload'].forEach(id => {
+                const input = document.getElementById(id);
+                if (input) input.value = '';
+            });
+        }
     }
 
     async loadVideos() {
@@ -219,148 +327,28 @@ class Studio {
         }
     }
 
-    async uploadVideo(file, title, description) {
-        let loadingDiv = null;
+    async deleteVideo(videoId) {
         try {
-            if (!this.currentUser) {
-                throw new Error('Please login to upload videos');
-            }
+            this.showLoading('Deleting video...');
 
-            // Log initial file info
-            console.log('Upload started with file:', {
-                name: file?.name,
-                type: file?.type,
-                size: file?.size,
-                lastModified: file?.lastModified
-            });
-
-            // Basic validation
-            if (!file) {
-                throw new Error('No file selected');
-            }
-
-            // Show progress UI
-            loadingDiv = document.createElement('div');
-            loadingDiv.className = 'upload-progress';
-            loadingDiv.innerHTML = `
-                <div class="progress-text">Starting upload...</div>
-                <div class="progress-bar">
-                    <div class="progress-fill" style="width: 0%"></div>
-                </div>
-            `;
-            document.querySelector('.upload-section').appendChild(loadingDiv);
-
-            const updateStatus = (message) => {
-                console.log('Status:', message);
-                if (loadingDiv) {
-                    loadingDiv.querySelector('.progress-text').textContent = message;
-                }
-            };
-
-            // Generate filename
-            const timestamp = Date.now();
-            const fileExt = file.name.split('.').pop().toLowerCase() || 'mp4';
-            const fileName = `${this.currentUser.id}/${timestamp}.${fileExt}`;
-
-            updateStatus('Preparing file for upload...');
-
-            // Convert file to base64 to ensure compatibility
-            const base64 = await new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = () => {
-                    try {
-                        // Get the base64 string
-                        const base64String = reader.result
-                            .replace('data:', '')
-                            .replace(/^.+,/, '');
-                        resolve(base64String);
-                    } catch (error) {
-                        console.error('Error processing file:', error);
-                        reject(error);
-                    }
-                };
-                reader.onerror = (error) => {
-                    console.error('FileReader error:', error);
-                    reject(error);
-                };
-                reader.readAsDataURL(file);
-            });
-
-            updateStatus('Uploading to server...');
-
-            // Try to upload using base64
-            const { data, error } = await supabase.storage
-                .from('videos')
-                .upload(fileName, decode(base64), {
-                    contentType: file.type,
-                    upsert: true
-                });
-
-            if (error) {
-                console.error('Storage upload error:', error);
-                throw error;
-            }
-
-            console.log('Upload successful:', data);
-            updateStatus('Getting video URL...');
-
-            // Get public URL
-            const { data: urlData, error: urlError } = supabase.storage
-                .from('videos')
-                .getPublicUrl(fileName);
-
-            if (urlError) {
-                console.error('Error getting URL:', urlError);
-                throw urlError;
-            }
-
-            updateStatus('Saving to database...');
-
-            // Save to database
-            const videoData = {
-                user_id: this.currentUser.id,
-                url: urlData.publicUrl,
-                title: title || 'Untitled Video',
-                description: description || '',
-                created_at: new Date().toISOString()
-            };
-
+            // Delete from database
             const { error: dbError } = await supabase
                 .from('videos')
-                .insert([videoData]);
+                .delete()
+                .eq('id', videoId);
 
-            if (dbError) {
-                console.error('Database error:', dbError);
-                throw dbError;
-            }
+            if (dbError) throw dbError;
 
-            updateStatus('Upload complete!');
-            this.showSuccess('Video uploaded successfully!');
+            // Reload videos
             await this.loadVideos();
+            this.showSuccess('Video deleted successfully');
 
         } catch (error) {
-            console.error('Upload failed:', error);
-            this.showError(error.message || 'Failed to upload video');
+            console.error('Delete error:', error);
+            this.showError('Failed to delete video');
         } finally {
-            if (loadingDiv) {
-                loadingDiv.remove();
-            }
-            // Reset file inputs
-            ['studio-video-upload', 'gallery-video-upload'].forEach(id => {
-                const input = document.getElementById(id);
-                if (input) input.value = '';
-            });
+            this.hideLoading();
         }
-    }
-
-    // Helper function to decode base64
-    function decode(base64) {
-        const binaryString = atob(base64);
-        const bytes = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) {
-            bytes[i] = binaryString.charCodeAt(i);
-        }
-        return bytes.buffer;
     }
 
     showLoading(message = 'Loading...') {
@@ -425,30 +413,6 @@ class Studio {
                 resolve(true);
             });
         });
-    }
-
-    async deleteVideo(videoId) {
-        try {
-            this.showLoading('Deleting video...');
-
-            // Delete from database
-            const { error: dbError } = await supabase
-                .from('videos')
-                .delete()
-                .eq('id', videoId);
-
-            if (dbError) throw dbError;
-
-            // Reload videos
-            await this.loadVideos();
-            this.showSuccess('Video deleted successfully');
-
-        } catch (error) {
-            console.error('Delete error:', error);
-            this.showError('Failed to delete video');
-        } finally {
-            this.hideLoading();
-        }
     }
 }
 
