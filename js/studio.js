@@ -235,81 +235,95 @@ class Studio {
                 throw new Error('Please login to upload videos');
             }
 
+            // Log initial file info
+            console.log('Upload started with file:', {
+                name: file?.name,
+                type: file?.type,
+                size: file?.size,
+                lastModified: file?.lastModified
+            });
+
             // Basic validation
             if (!file) {
                 throw new Error('No file selected');
-            }
-
-            // Size validation
-            const maxSize = 500 * 1024 * 1024;
-            if (file.size > maxSize) {
-                throw new Error(`File size must be less than 500MB. Current size: ${Math.round(file.size / (1024 * 1024))}MB`);
             }
 
             // Show progress UI
             loadingDiv = document.createElement('div');
             loadingDiv.className = 'upload-progress';
             loadingDiv.innerHTML = `
-                <div class="progress-text">Preparing upload...</div>
+                <div class="progress-text">Starting upload...</div>
                 <div class="progress-bar">
                     <div class="progress-fill" style="width: 0%"></div>
                 </div>
             `;
             document.querySelector('.upload-section').appendChild(loadingDiv);
 
-            const updateProgress = (percent, message) => {
+            const updateStatus = (message) => {
+                console.log('Status:', message);
                 if (loadingDiv) {
-                    loadingDiv.querySelector('.progress-text').textContent = message || `Uploading: ${percent}%`;
-                    loadingDiv.querySelector('.progress-fill').style.width = `${percent}%`;
+                    loadingDiv.querySelector('.progress-text').textContent = message;
                 }
-                console.log('Progress:', { percent, message });
             };
 
             // Generate filename
             const timestamp = Date.now();
-            const randomString = Math.random().toString(36).substring(7);
             const fileExt = file.name.split('.').pop().toLowerCase() || 'mp4';
-            const fileName = `${this.currentUser.id}/${timestamp}-${randomString}.${fileExt}`;
+            const fileName = `${this.currentUser.id}/${timestamp}.${fileExt}`;
 
-            updateProgress(5, 'Starting upload...');
+            updateStatus('Preparing file for upload...');
 
-            // Create FormData for the file
-            const formData = new FormData();
-            formData.append('file', file);
-
-            // Get the presigned URL for upload
-            const { data: { signedURL }, error: signedURLError } = await supabase.storage
-                .from('videos')
-                .createSignedUploadUrl(fileName);
-
-            if (signedURLError) {
-                throw signedURLError;
-            }
-
-            updateProgress(10, 'Uploading file...');
-
-            // Upload using fetch with FormData
-            const uploadResponse = await fetch(signedURL, {
-                method: 'PUT',
-                body: file,
-                headers: {
-                    'Content-Type': file.type,
-                    'x-upsert': 'true'
-                }
+            // Convert file to base64 to ensure compatibility
+            const base64 = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => {
+                    try {
+                        // Get the base64 string
+                        const base64String = reader.result
+                            .replace('data:', '')
+                            .replace(/^.+,/, '');
+                        resolve(base64String);
+                    } catch (error) {
+                        console.error('Error processing file:', error);
+                        reject(error);
+                    }
+                };
+                reader.onerror = (error) => {
+                    console.error('FileReader error:', error);
+                    reject(error);
+                };
+                reader.readAsDataURL(file);
             });
 
-            if (!uploadResponse.ok) {
-                throw new Error(`Upload failed: ${uploadResponse.statusText}`);
+            updateStatus('Uploading to server...');
+
+            // Try to upload using base64
+            const { data, error } = await supabase.storage
+                .from('videos')
+                .upload(fileName, decode(base64), {
+                    contentType: file.type,
+                    upsert: true
+                });
+
+            if (error) {
+                console.error('Storage upload error:', error);
+                throw error;
             }
 
-            updateProgress(90, 'Processing...');
+            console.log('Upload successful:', data);
+            updateStatus('Getting video URL...');
 
             // Get public URL
             const { data: urlData, error: urlError } = supabase.storage
                 .from('videos')
                 .getPublicUrl(fileName);
 
-            if (urlError) throw urlError;
+            if (urlError) {
+                console.error('Error getting URL:', urlError);
+                throw urlError;
+            }
+
+            updateStatus('Saving to database...');
 
             // Save to database
             const videoData = {
@@ -324,14 +338,17 @@ class Studio {
                 .from('videos')
                 .insert([videoData]);
 
-            if (dbError) throw dbError;
+            if (dbError) {
+                console.error('Database error:', dbError);
+                throw dbError;
+            }
 
-            updateProgress(100, 'Complete!');
+            updateStatus('Upload complete!');
             this.showSuccess('Video uploaded successfully!');
             await this.loadVideos();
 
         } catch (error) {
-            console.error('Upload error:', error);
+            console.error('Upload failed:', error);
             this.showError(error.message || 'Failed to upload video');
         } finally {
             if (loadingDiv) {
@@ -343,6 +360,16 @@ class Studio {
                 if (input) input.value = '';
             });
         }
+    }
+
+    // Helper function to decode base64
+    function decode(base64) {
+        const binaryString = atob(base64);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+        }
+        return bytes.buffer;
     }
 
     showLoading(message = 'Loading...') {
