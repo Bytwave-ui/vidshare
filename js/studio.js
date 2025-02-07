@@ -121,15 +121,6 @@ class Studio {
                 }
             });
         }
-
-        // Navigation listener
-        document.querySelectorAll('.nav-item').forEach(item => {
-            item.addEventListener('click', async () => {
-                if (item.dataset.tab === 'studio') {
-                    await this.loadVideos();
-                }
-            });
-        });
     }
 
     async showUploadModal(file) {
