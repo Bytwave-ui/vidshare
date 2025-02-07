@@ -235,13 +235,17 @@ class Studio {
                 throw new Error('Please login to upload videos');
             }
 
-            console.log('Starting video upload process...', { 
-                file, 
-                title, 
+            // Detailed logging of the upload start
+            console.log('Upload process started:', { 
+                fileInfo: {
+                    name: file?.name,
+                    type: file?.type,
+                    size: file?.size,
+                    lastModified: file?.lastModified
+                },
+                title,
                 description,
-                fileType: file?.type,
-                fileSize: file?.size,
-                fileConstructor: file?.constructor?.name
+                userId: this.currentUser?.id
             });
             
             // Basic file validation
@@ -251,6 +255,11 @@ class Studio {
 
             // More flexible file validation that works on mobile
             if (!(file instanceof Blob) && !(file instanceof File)) {
+                console.error('File validation failed:', {
+                    isBlob: file instanceof Blob,
+                    isFile: file instanceof File,
+                    constructor: file?.constructor?.name
+                });
                 throw new Error('Invalid file format');
             }
 
@@ -268,6 +277,10 @@ class Studio {
             );
 
             if (!isValidVideo) {
+                console.error('Video type validation failed:', {
+                    fileType: file.type,
+                    fileName: file.name
+                });
                 throw new Error('Please select a valid video file (MP4, MOV, AVI, or MKV)');
             }
 
@@ -288,13 +301,15 @@ class Studio {
             const fileExt = file.name.split('.').pop().toLowerCase() || 'mp4';
             const fileName = `${this.currentUser.id}/${timestamp}-${randomString}.${fileExt}`;
 
-            // Update UI
+            console.log('Starting file upload to storage:', { fileName });
+
+            // Update UI with detailed progress
             const updateProgress = (percent, message) => {
                 if (loadingDiv) {
                     loadingDiv.querySelector('.progress-text').textContent = message || `Uploading: ${percent}%`;
                     loadingDiv.querySelector('.progress-fill').style.width = `${percent}%`;
                 }
-                console.log('Upload progress:', percent + '%', message || '');
+                console.log('Upload progress:', { percent, message });
             };
 
             updateProgress(0, 'Starting upload...');
@@ -307,6 +322,8 @@ class Studio {
 
             while (uploadAttempt < maxAttempts) {
                 try {
+                    console.log(`Upload attempt ${uploadAttempt + 1}/${maxAttempts} starting...`);
+                    
                     const result = await supabase.storage
                         .from('videos')
                         .upload(fileName, file, {
@@ -314,9 +331,16 @@ class Studio {
                             upsert: false,
                             onUploadProgress: (progress) => {
                                 const percent = Math.round((progress.loaded / progress.total) * 100);
+                                console.log('Upload progress event:', { 
+                                    loaded: progress.loaded,
+                                    total: progress.total,
+                                    percent 
+                                });
                                 updateProgress(percent);
                             },
                         });
+
+                    console.log('Upload response:', result);
 
                     if (result.error) {
                         throw result.error;
@@ -326,28 +350,39 @@ class Studio {
                     uploadError = null;
                     break;
                 } catch (error) {
+                    console.error(`Upload attempt ${uploadAttempt + 1} failed:`, error);
                     uploadError = error;
                     uploadAttempt++;
                     if (uploadAttempt < maxAttempts) {
-                        updateProgress(0, `Upload failed, retrying (attempt ${uploadAttempt + 1}/${maxAttempts})...`);
-                        await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retry
+                        const retryDelay = 1000 * uploadAttempt; // Increase delay with each retry
+                        updateProgress(0, `Upload failed, retrying in ${retryDelay/1000}s (attempt ${uploadAttempt + 1}/${maxAttempts})...`);
+                        await new Promise(resolve => setTimeout(resolve, retryDelay));
                     }
                 }
             }
 
             if (uploadError) {
+                console.error('All upload attempts failed:', uploadError);
                 throw new Error(`Failed to upload video after ${maxAttempts} attempts: ${uploadError.message}`);
             }
 
             updateProgress(100, 'Processing video...');
+            console.log('Getting public URL for uploaded video');
 
             // Get public URL
             const { data: urlData, error: urlError } = supabase.storage
                 .from('videos')
                 .getPublicUrl(fileName);
 
-            if (urlError) throw urlError;
-            if (!urlData?.publicUrl) throw new Error('Failed to generate video URL');
+            if (urlError) {
+                console.error('Error getting public URL:', urlError);
+                throw urlError;
+            }
+            if (!urlData?.publicUrl) {
+                throw new Error('Failed to generate video URL');
+            }
+
+            console.log('Saving video data to database');
 
             // Save to database
             const videoData = {
@@ -362,9 +397,13 @@ class Studio {
                 .from('videos')
                 .insert([videoData]);
 
-            if (dbError) throw dbError;
+            if (dbError) {
+                console.error('Database error:', dbError);
+                throw dbError;
+            }
 
             // Success!
+            console.log('Video upload completed successfully');
             this.showSuccess('Video uploaded successfully!');
             await this.loadVideos();
 
